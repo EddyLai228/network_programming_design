@@ -1,0 +1,6 @@
+# Python dependencies for Game Store System
+# No external dependencies required for core functionality
+
+# Optional: For future enhancements
+# flask>=2.0.0  # For web interface
+# pygame>=2.0.0  # For more complex GUI games

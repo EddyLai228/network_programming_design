@@ -1,0 +1,8 @@
+{
+  "name": "Snake",
+  "description": "經典貪食蛇遊戲，控制蛇吃食物，避免撞牆和自己",
+  "type": "GUI",
+  "max_players": 1,
+  "version": "1.0.0",
+  "start_command": "python game.py"
+}

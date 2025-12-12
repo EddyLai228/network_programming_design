@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Game Store Specific
+server/data/*.json
+server/uploaded_games/*
+player/downloads/*
+
+# But keep directory structure
+!server/data/.gitkeep
+!server/uploaded_games/.gitkeep
+!player/downloads/.gitkeep
+
+# Temporary files
+*.zip
+*.tar.gz
+/tmp/
+
+# Logs
+*.log
