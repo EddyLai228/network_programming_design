@@ -1,0 +1,8 @@
+{
+  "name": "TicTacToe GUI",
+  "description": "井字遊戲 GUI 版本 - 單人對戰電腦 AI。點擊方格下棋，先連成三個的玩家獲勝！",
+  "type": "GUI_SINGLE",
+  "max_players": 1,
+  "version": "1.0.0",
+  "start_command": "python game.py"
+}

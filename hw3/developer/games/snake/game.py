@@ -181,6 +181,18 @@ class SnakeGame:
     def end_game(self):
         """End the game"""
         self.game_over = True
+        
+        # Write game result to file for lobby server
+        try:
+            import os
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            result = f"最終分數: {self.score}"
+            with open(os.path.join(script_dir, 'game_result.txt'), 'w', encoding='utf-8') as f:
+                f.write(result)
+            print(f"\n✅ 遊戲結果已寫入: {result}")
+        except Exception as e:
+            print(f"⚠️  無法寫入遊戲結果: {e}")
+        
         messagebox.showinfo(
             "遊戲結束",
             f"遊戲結束！\n最終分數: {self.score}"

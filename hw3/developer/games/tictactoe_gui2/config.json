@@ -1,0 +1,8 @@
+{
+  "name": "TicTacToe GUI 對戰版",
+  "description": "井字遊戲 GUI 雙人對戰版 - 透過網路與其他玩家即時對戰。美觀的圖形介面，支援兩人對戰！",
+  "type": "GUI_MULTIPLAYER",
+  "max_players": 2,
+  "version": "1.0.0",
+  "start_command": "python game.py client --host localhost"
+}

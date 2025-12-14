@@ -157,17 +157,28 @@ class TicTacToeServer:
         
         # Game over
         if self.game.winner:
+            result_msg = f'玩家 {self.game.winner} 獲勝!'
             self.broadcast({
                 'type': 'game_over',
                 'winner': self.game.winner,
-                'message': f'玩家 {self.game.winner} 獲勝!'
+                'message': result_msg
             })
         else:
+            result_msg = '平局!'
             self.broadcast({
                 'type': 'game_over',
                 'winner': None,
-                'message': '平局!'
+                'message': result_msg
             })
+        
+        # Write game result to file for lobby server
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            with open(os.path.join(script_dir, 'game_result.txt'), 'w', encoding='utf-8') as f:
+                f.write(result_msg)
+            print(f"\n✅ 遊戲結果已寫入: {result_msg}")
+        except Exception as e:
+            print(f"⚠️  無法寫入遊戲結果: {e}")
         
         # Clean up
         for sock in self.players.values():

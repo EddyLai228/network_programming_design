@@ -359,6 +359,16 @@ class SnakeGame:
             self.move_snake()
             
             if self.game_over:
+                # Write game result to file for lobby server
+                try:
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    result = f"最終分數: {self.score} (難度: {self.difficulty})"
+                    with open(os.path.join(script_dir, 'game_result.txt'), 'w', encoding='utf-8') as f:
+                        f.write(result)
+                    print(f"\n✅ 遊戲結果已寫入: {result}")
+                except Exception as e:
+                    print(f"⚠️  無法寫入遊戲結果: {e}")
+                
                 self.canvas.create_text(
                     self.width // 2,
                     self.height // 2 - 30,
