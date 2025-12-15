@@ -6,11 +6,17 @@ Handles persistent data storage using JSON files
 import json
 import os
 import threading
+import hashlib
 from datetime import datetime
 
 
 class DatabaseServer:
     """Database server for storing all persistent data"""
+    
+    @staticmethod
+    def _hash_password(password):
+        """Hash password using SHA-256"""
+        return hashlib.sha256(password.encode('utf-8')).hexdigest()
     
     def __init__(self, data_dir="data"):
         self.data_dir = data_dir
@@ -60,7 +66,7 @@ class DatabaseServer:
                 return False, "帳號已被使用"
             
             self.dev_users[username] = {
-                "password": password,
+                "password": self._hash_password(password),
                 "created_at": datetime.now().isoformat()
             }
             self._save_json(self.dev_users_file, self.dev_users)
@@ -72,7 +78,7 @@ class DatabaseServer:
             if username not in self.dev_users:
                 return False, "帳號或密碼錯誤"
             
-            if self.dev_users[username]["password"] != password:
+            if self.dev_users[username]["password"] != self._hash_password(password):
                 return False, "帳號或密碼錯誤"
             
             if username in self.dev_sessions:
@@ -96,7 +102,7 @@ class DatabaseServer:
                 return False, "帳號已被使用"
             
             self.player_users[username] = {
-                "password": password,
+                "password": self._hash_password(password),
                 "created_at": datetime.now().isoformat(),
                 "played_games": []
             }
@@ -109,7 +115,7 @@ class DatabaseServer:
             if username not in self.player_users:
                 return False, "帳號或密碼錯誤"
             
-            if self.player_users[username]["password"] != password:
+            if self.player_users[username]["password"] != self._hash_password(password):
                 return False, "帳號或密碼錯誤"
             
             if username in self.player_sessions:

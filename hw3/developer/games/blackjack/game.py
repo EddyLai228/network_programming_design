@@ -252,7 +252,7 @@ class BlackjackServer:
         self.lock = threading.Lock()
         self.min_players = 3
         self.max_players = 6
-        self.waiting_time = 5
+        self.waiting_time = 1  # 縮短等待時間到1秒
         
     def start(self):
         """啟動服務器"""

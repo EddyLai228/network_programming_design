@@ -4,7 +4,7 @@
   "author": "Game Developer",
   "description": "21點撲克牌遊戲，支持3-6人同局對戰莊家。每位玩家獨立下注，目標是讓手牌點數盡量接近21點但不爆牌。支援要牌、停牌、加倍等操作，籌碼歸零即破產出局！",
   "type": "CLI_MULTIPLAYER",
-  "max_players": 6,
+  "max_players": 3,
   "start_command": "python game.py client --host localhost",
   "server_command": "python game.py server"
 }
