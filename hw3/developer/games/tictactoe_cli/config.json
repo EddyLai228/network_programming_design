@@ -1,0 +1,9 @@
+{
+  "name": "TicTacToe CLI 對戰版",
+  "description": "井字遊戲 CLI 雙人對戰版 - 透過網路與其他玩家即時對戰。簡潔的命令列介面，支援兩人對戰！",
+  "type": "CLI_MULTIPLAYER",
+  "max_players": 2,
+  "version": "1.0.0",
+  "server_command": "python game.py server",
+  "start_command": "python game.py client --host localhost"
+}

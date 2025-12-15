@@ -1,9 +1,0 @@
-{
-  "name": "Tic-Tac-Toe",
-  "description": "經典的井字遊戲，兩位玩家輪流在3x3格子上放置符號，先連成一線者獲勝",
-  "type": "CLI_MULTIPLAYER",
-  "max_players": 2,
-  "version": "1.0.0",
-  "start_command": "python game.py client --host localhost",
-  "server_command": "python game.py server"
-}

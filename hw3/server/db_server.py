@@ -254,6 +254,8 @@ class DatabaseServer:
     def has_played_game(self, username, game_id):
         """Check if player has played a game"""
         with self.lock:
+            # Reload from file to get latest data
+            self.player_users = self._load_json(self.player_users_file, {})
             if username in self.player_users:
                 return game_id in self.player_users[username].get('played_games', [])
             return False

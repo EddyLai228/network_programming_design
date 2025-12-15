@@ -525,7 +525,7 @@ class LobbyClient:
                 print("3. 加入房間")
                 print("4. 離開房間")
                 print("5. 開始遊戲")
-                print("6. 強制結束遊戲 (房主限定，緊急用)")
+                print("6. 結束遊戲")
                 print("7. 返回主選單")
                 
                 # Show game server status if host and server is running
@@ -533,6 +533,16 @@ class LobbyClient:
                     if self.game_server_process and self.game_server_process.poll() is None:
                         print(f"\n💡 遊戲伺服器運行中 (PID: {self.game_server_process.pid})")
                         print("   遊戲會在伺服器停止後自動結束")
+                    
+                    # Check if game result file exists (game has ended)
+                    if self.current_room.get('status') == 'playing':
+                        game_id = self.current_room.get('game_id')
+                        if game_id:
+                            user_downloads_dir = os.path.join(self.downloads_dir, self.username)
+                            game_dir = os.path.join(user_downloads_dir, game_id)
+                            result_file = os.path.join(game_dir, 'game_result.txt')
+                            if os.path.exists(result_file):
+                                print(f"\n⚠️  檢測到遊戲已結束！請選擇 [6] 結束遊戲並更新房間狀態")
                 
                 print("\n" + "=" * 50)
                 choice = input("請選擇功能: ").strip()
@@ -1409,7 +1419,7 @@ class LobbyClient:
         
         # Only host can force end the game
         if self.username != self.current_room['host']:
-            print("\n只有房主可以強制結束遊戲")
+            print("\n只有房主可以結束遊戲")
             input("\n按 Enter 繼續...")
             return
         
@@ -1418,15 +1428,32 @@ class LobbyClient:
             input("\n按 Enter 繼續...")
             return
         
-        print("\n⚠️  強制結束遊戲")
-        print("提示: 正常情況下遊戲會在伺服器停止後自動結束")
-        print("     只在遊戲無法正常結束時使用此功能")
-        confirm = input("\n確定要強制結束? 輸入 'yes' 確認: ").strip().lower()
+        # Check if game has ended by looking for result file
+        game_result = None
+        game_id = self.current_room.get('game_id')
+        if game_id:
+            user_downloads_dir = os.path.join(self.downloads_dir, self.username)
+            game_dir = os.path.join(user_downloads_dir, game_id)
+            result_file = os.path.join(game_dir, 'game_result.txt')
+            if os.path.exists(result_file):
+                try:
+                    with open(result_file, 'r', encoding='utf-8') as f:
+                        game_result = f.read().strip()
+                    print(f"\n✓ 檢測到遊戲結果: {game_result}")
+                    print("\n正在更新房間狀態...")
+                except:
+                    pass
         
-        if confirm != 'yes':
-            print("\n已取消")
-            input("按 Enter 繼續...")
-            return
+        if not game_result:
+            print("\n⚠️  結束遊戲")
+            
+            confirm = input("\n確定要結束遊戲? 輸入 'yes' 確認: ").strip().lower()
+            
+            if confirm != 'yes':
+                print("\n已取消")
+                input("按 Enter 繼續...")
+                return
+            game_result = '遊戲被結束'
         
         try:
             # Force terminate game server if it's running
@@ -1436,12 +1463,12 @@ class LobbyClient:
                 try:
                     self.game_server_process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    print("強制結束進程...")
+                    print("結束遊戲進程...")
                     self.game_server_process.kill()
             
             send_message(self.socket, MessageType.PLAYER_END_GAME, {
                 'room_id': self.current_room['room_id'],
-                'result': '遊戲被強制結束'
+                'result': game_result
             })
             
             msg_type, data = self.safe_recv_message(self.socket)
@@ -1454,7 +1481,7 @@ class LobbyClient:
                 print(f"\n✗ {data['error']}")
         
         except Exception as e:
-            print(f"\n✗ 強制結束失敗: {e}")
+            print(f"\n✗ 結束失敗: {e}")
         
         input("\n按 Enter 繼續...")
     

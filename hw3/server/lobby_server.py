@@ -8,6 +8,7 @@ import threading
 import os
 import shutil
 import zipfile
+import time
 from protocol import Protocol, MessageType, recv_message, send_message, send_file
 from db_server import get_db
 
@@ -26,6 +27,9 @@ class LobbyServer:
         
         # Clear all rooms on server startup (all players disconnected)
         self._clear_all_rooms()
+        
+        # Start game port monitor thread
+        self.monitor_thread = None
     
     def _clear_all_rooms(self):
         """Clear all rooms when server starts (all players have disconnected)"""
@@ -34,6 +38,61 @@ class LobbyServer:
             self.db.delete_room(room_id)
         print("All rooms cleared on server startup")
     
+    def _monitor_game_ports(self):
+        """Monitor game ports and reset room status if port is closed"""
+        from datetime import datetime, timedelta
+        
+        while self.running:
+            try:
+                time.sleep(5)  # Check every 5 seconds
+                rooms = self.db.get_all_rooms()
+                
+                for room_id, room in rooms.items():
+                    # Only check rooms that are playing and have a game port
+                    if room.get('status') == 'playing' and room.get('game_port'):
+                        game_port = room['game_port']
+                        
+                        # Skip checking if game just started (within 10 seconds)
+                        game_start_time = room.get('game_start_time')
+                        if game_start_time:
+                            start_dt = datetime.fromisoformat(game_start_time)
+                            if datetime.now() - start_dt < timedelta(seconds=10):
+                                continue  # Skip checking for newly started games
+                        
+                        # Try to connect to the game port multiple times
+                        port_closed = True
+                        for attempt in range(2):  # Try twice
+                            try:
+                                test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                                test_sock.settimeout(1)
+                                test_sock.connect(('localhost', game_port))
+                                test_sock.close()
+                                # Port is still open, game is running
+                                port_closed = False
+                                break
+                            except:
+                                time.sleep(0.5)  # Wait a bit before retry
+                        
+                        if port_closed:
+                            # Port is closed, game has ended
+                            print(f"Game port {game_port} is closed for room {room_id}, resetting to waiting")
+                            
+                            # Record game history for all players
+                            game_id = room.get('game_id')
+                            if game_id:
+                                for player in room['players']:
+                                    self.db.add_played_game(player, game_id)
+                                    print(f"Recorded game {game_id} for player {player}")
+                            
+                            room['status'] = 'waiting'
+                            room['game_port'] = None
+                            room['game_start_time'] = None
+                            self.db.update_room(room_id, room)
+                            
+            except Exception as e:
+                print(f"Error in game port monitor: {e}")
+                time.sleep(5)
+    
     def start(self):
         """Start the lobby server"""
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -41,6 +100,10 @@ class LobbyServer:
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(5)
         self.running = True
+        
+        # Start game port monitor
+        self.monitor_thread = threading.Thread(target=self._monitor_game_ports, daemon=True)
+        self.monitor_thread.start()
         
         print(f"Lobby Server started on {self.host}:{self.port}")
         
@@ -482,8 +545,10 @@ class LobbyServer:
         if current_players < room['max_players']:
             return Protocol.error_response(f"房間人數不足 ({current_players}/{room['max_players']})")
         
-        # Update room status to playing
+        # Update room status to playing and record start time
+        from datetime import datetime
         room['status'] = 'playing'
+        room['game_start_time'] = datetime.now().isoformat()
         self.db.update_room(room_id, room)
         
         return Protocol.success_response({
@@ -532,9 +597,17 @@ class LobbyServer:
         if room['host'] != username:
             return Protocol.error_response("只有房主可以結束遊戲")
         
+        # Record game history for all players
+        game_id = room.get('game_id')
+        if game_id:
+            for player in room['players']:
+                self.db.add_played_game(player, game_id)
+                print(f"Recorded game {game_id} for player {player}")
+        
         # Reset room status to waiting
         room['status'] = 'waiting'
         room['game_port'] = None  # Clear game port
+        room['game_start_time'] = None  # Clear game start time
         room['game_result'] = game_result  # Store game result
         self.db.update_room(room_id, room)
         
