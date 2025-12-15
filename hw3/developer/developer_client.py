@@ -9,6 +9,7 @@ import sys
 import zipfile
 import threading
 import time
+import json
 from protocol import Protocol, MessageType, recv_message, send_message, send_file
 
 
@@ -307,13 +308,7 @@ class DeveloperClient:
         version = input("請輸入版本號 (預設1.0.0): ").strip()
         version = version if version else "1.0.0"
         
-        start_command = input("請輸入啟動指令 (例如: python game.py): ").strip()
-        if not start_command:
-            print("啟動指令不能為空")
-            input("按 Enter 繼續...")
-            return
-        
-        # Select game directory
+        # Select game directory first
         print("\n請選擇遊戲目錄:")
         games_dir = "games"
         if os.path.exists(games_dir):
@@ -343,6 +338,40 @@ class DeveloperClient:
             input("按 Enter 繼續...")
             return
         
+        # Try to read commands from config.json
+        config_path = os.path.join(game_dir, "config.json")
+        server_command = None
+        start_command = None
+        
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    server_command = config.get('server_command')
+                    start_command = config.get('start_command')
+                    print(f"\n✓ 從 config.json 讀取啟動指令:")
+                    if server_command:
+                        print(f"  伺服器: {server_command}")
+                    if start_command:
+                        print(f"  客戶端: {start_command}")
+            except Exception as e:
+                print(f"⚠️  無法讀取 config.json: {e}")
+        
+        # Ask for commands if not found in config
+        if not server_command and game_mode == 'MULTIPLAYER':
+            server_command = input("\n請輸入伺服器啟動指令 (例如: python game.py server): ").strip()
+            if not server_command:
+                print("多人遊戲需要伺服器啟動指令")
+                input("按 Enter 繼續...")
+                return
+        
+        if not start_command:
+            start_command = input("\n請輸入客戶端啟動指令 (例如: python game.py client --host localhost): ").strip()
+            if not start_command:
+                print("客戶端啟動指令不能為空")
+                input("按 Enter 繼續...")
+                return
+        
         # Create zip file
         print("\n正在打包遊戲...")
         zip_path = f"/tmp/{game_name}.zip"
@@ -361,14 +390,20 @@ class DeveloperClient:
         # Upload game
         print("正在上傳遊戲...")
         try:
-            send_message(self.socket, MessageType.DEV_UPLOAD_GAME, {
+            upload_data = {
                 'game_name': game_name,
                 'description': description,
                 'game_type': game_type,
                 'max_players': max_players,
                 'version': version,
                 'start_command': start_command
-            })
+            }
+            
+            # Add server_command if it exists (for multiplayer games)
+            if server_command:
+                upload_data['server_command'] = server_command
+            
+            send_message(self.socket, MessageType.DEV_UPLOAD_GAME, upload_data)
             
             # Wait for ready signal
             msg_type, data = self.safe_recv_message(self.socket)

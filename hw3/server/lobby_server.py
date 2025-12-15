@@ -22,6 +22,17 @@ class LobbyServer:
         self.server_socket = None
         self.running = False
         
+        # Get the public hostname for Game Server connections
+        # Can be overridden with environment variable PUBLIC_HOST
+        # Default to linux4.cs.nycu.edu.tw for NYCU deployment
+        hostname = socket.gethostname()
+        if 'linux4' in hostname and 'cs.nycu.edu.tw' not in hostname:
+            self.public_host = 'linux4.cs.nycu.edu.tw'
+        else:
+            self.public_host = os.environ.get('PUBLIC_HOST', hostname)
+        
+        print(f"Public hostname for game servers: {self.public_host}")
+        
         # Track active game servers
         self.game_servers = {}  # room_id -> process
         
@@ -39,7 +50,7 @@ class LobbyServer:
         print("All rooms cleared on server startup")
     
     def _monitor_game_ports(self):
-        """Monitor game ports and reset room status if port is closed"""
+        """Monitor game server processes and reset room status if process terminates"""
         from datetime import datetime, timedelta
         
         while self.running:
@@ -48,10 +59,8 @@ class LobbyServer:
                 rooms = self.db.get_all_rooms()
                 
                 for room_id, room in rooms.items():
-                    # Only check rooms that are playing and have a game port
-                    if room.get('status') == 'playing' and room.get('game_port'):
-                        game_port = room['game_port']
-                        
+                    # Only check rooms that are playing
+                    if room.get('status') == 'playing':
                         # Skip checking if game just started (within 10 seconds)
                         game_start_time = room.get('game_start_time')
                         if game_start_time:
@@ -59,34 +68,27 @@ class LobbyServer:
                             if datetime.now() - start_dt < timedelta(seconds=10):
                                 continue  # Skip checking for newly started games
                         
-                        # Try to connect to the game port multiple times
-                        port_closed = True
-                        for attempt in range(2):  # Try twice
-                            try:
-                                test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                                test_sock.settimeout(1)
-                                test_sock.connect(('localhost', game_port))
-                                test_sock.close()
-                                # Port is still open, game is running
-                                port_closed = False
-                                break
-                            except:
-                                time.sleep(0.5)  # Wait a bit before retry
-                        
-                        if port_closed:
-                            # Port is closed, game has ended
-                            print(f"Game port {game_port} is closed for room {room_id}, resetting to waiting")
-                            
-                            # Record game history for all players
-                            game_id = room.get('game_id')
-                            if game_id:
-                                for player in room['players']:
-                                    self.db.add_played_game(player, game_id)
-                                    print(f"Recorded game {game_id} for player {player}")
-                            
-                            room['status'] = 'waiting'
-                            room['game_port'] = None
-                            room['game_start_time'] = None
+                        # Check if game server process is still running
+                        if room_id in self.game_servers:
+                            process = self.game_servers[room_id]
+                            if process.poll() is not None:
+                                # Process has terminated
+                                print(f"Game server for room {room_id} has terminated, resetting to waiting")
+                                
+                                # Clean up the process reference
+                                del self.game_servers[room_id]
+                                
+                                # Record game history for all players
+                                game_id = room.get('game_id')
+                                if game_id:
+                                    for player in room['players']:
+                                        self.db.add_played_game(player, game_id)
+                                        print(f"Recorded game {game_id} for player {player}")
+                                
+                                room['status'] = 'waiting'
+                                room['game_port'] = None
+                                room['game_host'] = None
+                                room['game_start_time'] = None
                             self.db.update_room(room_id, room)
                             
             except Exception as e:
@@ -545,14 +547,82 @@ class LobbyServer:
         if current_players < room['max_players']:
             return Protocol.error_response(f"房間人數不足 ({current_players}/{room['max_players']})")
         
-        # Update room status to playing and record start time
+        # Get game info
+        game_id = room['game_id']
+        game = self.db.get_game(game_id)
+        if not game:
+            return Protocol.error_response("遊戲不存在")
+        
+        # Start game server on server side
+        import subprocess
+        import json
+        
+        # Find game directory
+        game_dir = os.path.join(self.upload_dir, game_id, game['version'])
+        if not os.path.exists(game_dir):
+            return Protocol.error_response("遊戲文件不存在")
+        
+        # Read game config
+        config_path = os.path.join(game_dir, "config.json")
+        if not os.path.exists(config_path):
+            return Protocol.error_response("遊戲配置文件不存在")
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+        except Exception as e:
+            return Protocol.error_response(f"讀取遊戲配置失敗: {e}")
+        
+        # Check if multiplayer game has server command
+        if 'MULTIPLAYER' in config.get('type', '') and not config.get('server_command'):
+            return Protocol.error_response("多人遊戲缺少 server_command 配置")
+        
+        # Find available port
+        def find_available_port(start_port=15000):
+            for port in range(start_port, start_port + 1000):
+                try:
+                    test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    test_sock.bind(('0.0.0.0', port))
+                    test_sock.close()
+                    return port
+                except:
+                    continue
+            return None
+        
+        game_port = find_available_port()
+        if not game_port:
+            return Protocol.error_response("無法分配遊戲端口")
+        
+        # Start game server
+        server_command = config.get('server_command', '')
+        if server_command:
+            cmd_parts = server_command.split()
+            if cmd_parts[0] == 'python':
+                cmd_parts[0] = 'python3'
+            cmd_parts.extend(['--port', str(game_port)])
+            
+            try:
+                process = subprocess.Popen(
+                    cmd_parts,
+                    cwd=game_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                self.game_servers[room_id] = process
+                print(f"✓ Started game server for room {room_id} on port {game_port} (PID: {process.pid})")
+            except Exception as e:
+                return Protocol.error_response(f"啟動遊戲服務器失敗: {e}")
+        
+        # Update room status to playing and record start time and game port
         from datetime import datetime
         room['status'] = 'playing'
         room['game_start_time'] = datetime.now().isoformat()
+        room['game_port'] = game_port
+        room['game_host'] = self.public_host  # Use public hostname
         self.db.update_room(room_id, room)
         
         return Protocol.success_response({
-            "message": "遊戲已開始，已通知所有玩家",
+            "message": f"遊戲已開始，遊戲服務器運行在 {self.public_host}:{game_port}",
             "room_data": room
         })
     
@@ -604,9 +674,25 @@ class LobbyServer:
                 self.db.add_played_game(player, game_id)
                 print(f"Recorded game {game_id} for player {player}")
         
+        # Terminate game server process if it's running
+        if room_id in self.game_servers:
+            try:
+                process = self.game_servers[room_id]
+                if process.poll() is None:  # Process is still running
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    print(f"✓ Terminated game server for room {room_id}")
+                del self.game_servers[room_id]
+            except Exception as e:
+                print(f"⚠️  Error terminating game server: {e}")
+        
         # Reset room status to waiting
         room['status'] = 'waiting'
         room['game_port'] = None  # Clear game port
+        room['game_host'] = None  # Clear game host
         room['game_start_time'] = None  # Clear game start time
         room['game_result'] = game_result  # Store game result
         self.db.update_room(room_id, room)

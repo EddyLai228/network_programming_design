@@ -1167,46 +1167,23 @@ class LobbyClient:
         print("\n正在啟動遊戲...")
         
         try:
-            import json
-            import subprocess
-            
             # Get game info from current room
             game_id = self.current_room['game_id']
             game_name = self.current_room['game_name']
             max_players = self.current_room['max_players']
             current_players = len(self.current_room.get('players', []))
             
-            # Find game directory
-            user_downloads_dir = os.path.join(self.downloads_dir, self.username)
-            game_dir = os.path.join(user_downloads_dir, game_id)
-            
-            if not os.path.exists(game_dir):
-                print(f"\n✗ 找不到遊戲目錄: {game_dir}")
-                input("按 Enter 繼續...")
-                return
-            
-            # Read game config
-            config_path = os.path.join(game_dir, "config.json")
-            if not os.path.exists(config_path):
-                print(f"\n✗ 找不到遊戲配置文件: {config_path}")
-                input("按 Enter 繼續...")
-                return
-            
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            
-            game_type = config.get('type', 'GUI')
-            start_command = config.get('start_command', 'python game.py')
-            server_command = config.get('server_command')
-            
             print(f"遊戲: {game_name}")
-            print(f"類型: {game_type}")
             print(f"房間人數: {current_players}/{max_players}")
             
-            # Check if this is a multiplayer game
-            is_multiplayer = 'MULTIPLAYER' in game_type or server_command is not None
+            # Check if room is full
+            if current_players < max_players:
+                print(f"\n⚠️  房間人數不足 ({current_players}/{max_players})")
+                print("等待其他玩家加入...")
+                input("\n按 Enter 繼續...")
+                return
             
-            # Notify server to update room status to 'playing'
+            # Notify server to start game (server will launch game server)
             try:
                 send_message(self.socket, MessageType.PLAYER_START_GAME, {
                     'room_id': self.current_room['room_id']
@@ -1216,112 +1193,82 @@ class LobbyClient:
                     print(f"\n✗ 無法啟動遊戲: {response.get('error', '未知錯誤')}")
                     input("\n按 Enter 繼續...")
                     return
-                print("✓ 已通知其他玩家，遊戲即將開始")
+                
+                # Update room data with game port and host
+                self.current_room = response.get('room_data', self.current_room)
+                game_host = self.current_room.get('game_host', 'localhost')
+                game_port = self.current_room.get('game_port')
+                
+                print(f"✓ {response.get('message', '遊戲已開始')}")
+                print(f"✓ 遊戲服務器地址: {game_host}:{game_port}")
+                print("\n遊戲服務器已在遠程啟動，請稍候...")
+                time.sleep(2)
+                
             except Exception as e:
                 print(f"\n✗ 通知服務器失敗: {e}")
                 input("\n按 Enter 繼續...")
                 return
             
-            if is_multiplayer:
-                # For multiplayer games
-                if current_players < max_players:
-                    print(f"\n⚠️  房間人數不足 ({current_players}/{max_players})")
-                    print("等待其他玩家加入...")
-                    input("\n按 Enter 繼續...")
-                    return
-                
-                if not server_command:
-                    print("\n✗ 多人遊戲缺少 server_command 配置")
-                    input("按 Enter 繼續...")
-                    return
-                
-                # Check if player is the host
-                is_host = self.current_room['host'] == self.username
-                
-                if is_host:
-                    print("\n你是房主，需要先啟動遊戲伺服器")
-                    
-                    # Find available port
-                    import socket as sock
-                    temp_sock = sock.socket(sock.AF_INET, sock.SOCK_STREAM)
-                    temp_sock.bind(('', 0))
-                    game_port = temp_sock.getsockname()[1]
-                    temp_sock.close()
-                    
-                    print(f"✓ 已自動分配端口: {game_port}")
-                    
-                    # Update server command with port
-                    server_cmd_parts = server_command.split()
-                    if server_cmd_parts[0] == 'python':
-                        server_cmd_parts[0] = 'python3'
-                    server_cmd_parts.extend(['--port', str(game_port)])
-                    
-                    print(f"伺服器命令: {' '.join(server_cmd_parts)}")
-                    
-                    # Notify lobby server about the port
-                    try:
-                        send_message(self.socket, MessageType.PLAYER_UPDATE_GAME_PORT, {
-                            'room_id': self.current_room['room_id'],
-                            'game_port': game_port
-                        })
-                        msg_type, response = self.safe_recv_message(self.socket)
-                        if msg_type == MessageType.SUCCESS:
-                            print(f"✓ 已通知其他玩家遊戲端口: {game_port}")
-                            self.current_room['game_port'] = game_port
-                        else:
-                            print(f"⚠️  無法通知端口信息: {response.get('error', '未知錯誤')}")
-                    except Exception as e:
-                        print(f"⚠️  通知端口失敗: {e}")
-                    
-                    # Start server in new terminal
-                    import platform
-                    system = platform.system()
-                    
-                    if system == 'Darwin':  # macOS
-                        # Use 'do shell script' to close terminal after game ends
-                        terminal_cmd = [
-                            'osascript', '-e',
-                            f'tell app "Terminal" to do script "cd {game_dir} && {" ".join(server_cmd_parts)}; echo \'遊戲伺服器已關閉，3秒後自動關閉視窗...\'; sleep 3; exit"'  
-                        ]
-                    elif system == 'Linux':
-                        terminal_cmd = ['x-terminal-emulator', '-e', f'cd {game_dir} && {" ".join(server_cmd_parts)}']
-                    else:  # Windows
-                        terminal_cmd = ['start', 'cmd', '/k', f'cd {game_dir} && {" ".join(server_cmd_parts)}']
-                    
-                    try:
-                        subprocess.Popen(terminal_cmd, shell=(system == 'Windows'))
-                        print("\n✓ 遊戲伺服器已在新終端窗口啟動")
-                        
-                        print("等待 3 秒讓伺服器啟動...")
-                        time.sleep(3)
-                    except Exception as e:
-                        print(f"\n✗ 無法自動啟動伺服器: {e}")
-                        print(f"\n請手動在新終端執行:")
-                        print(f"  cd {game_dir}")
-                        print(f"  {server_command}")
-                        input("\n啟動伺服器後，按 Enter 繼續...")
-                else:
-                    print("\n等待房主啟動遊戲伺服器...")
-                    print("(房主需要先啟動伺服器)")
+            # All players (including host) launch game client
+            self._launch_game_client()
             
-            # Start game client
-            print(f"\n啟動命令: {start_command}")
-            print("正在啟動遊戲客戶端...")
+        except Exception as e:
+            print(f"\n✗ 啟動遊戲失敗: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        input("\n按 Enter 繼續...")
+    
+    def _launch_game_client(self):
+        """Launch game client to connect to remote game server"""
+        try:
+            import json
+            import subprocess
             
-            # Parse and execute start command
+            game_id = self.current_room['game_id']
+            game_name = self.current_room['game_name']
+            game_host = self.current_room.get('game_host', self.server_host)
+            game_port = self.current_room.get('game_port')
+            
+            if not game_port:
+                print("\n✗ 無法獲取遊戲端口")
+                return
+            
+            # Find game directory
+            user_downloads_dir = os.path.join(self.downloads_dir, self.username)
+            game_dir = os.path.join(user_downloads_dir, game_id)
+            
+            if not os.path.exists(game_dir):
+                print(f"\n✗ 找不到遊戲目錄: {game_dir}")
+                print("請先下載遊戲")
+                return
+            
+            # Read game config
+            config_path = os.path.join(game_dir, "config.json")
+            if not os.path.exists(config_path):
+                print(f"\n✗ 找不到遊戲配置文件")
+                return
+            
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            game_type = config.get('type', 'GUI')
+            start_command = config.get('start_command', 'python game.py')
+            
+            # Parse start command
             cmd_parts = start_command.split()
-            # Replace 'python' with 'python3'
             if cmd_parts[0] == 'python':
                 cmd_parts[0] = 'python3'
             
-            # Add port parameter for multiplayer games
-            if is_multiplayer and self.current_room.get('game_port'):
-                cmd_parts.extend(['--port', str(self.current_room['game_port'])])
-                print(f"連接端口: {self.current_room['game_port']}")
+            # Add connection parameters
+            cmd_parts.extend(['--host', game_host, '--port', str(game_port)])
             
-            # For CLI games, start in new terminal; for GUI games, start in background
+            print(f"\n正在連接到遊戲服務器...")
+            print(f"地址: {game_host}:{game_port}")
+            
+            # Start game client
             if 'CLI' in game_type:
-                # Start client in new terminal window
+                # Start in new terminal for CLI games
                 import platform
                 system = platform.system()
                 
@@ -1335,38 +1282,25 @@ class LobbyClient:
                 else:  # Windows
                     terminal_cmd = ['start', 'cmd', '/k', f'cd {game_dir} && {" ".join(cmd_parts)}']
                 
-                try:
-                    subprocess.Popen(terminal_cmd, shell=(system == 'Windows'))
-                    print(f"\n✓ 遊戲客戶端已在新終端窗口啟動")
-                except Exception as e:
-                    print(f"\n✗ 無法自動啟動客戶端: {e}")
-                    print(f"\n請手動在新終端執行:")
-                    print(f"  cd {game_dir}")
-                    print(f"  {start_command}")
+                subprocess.Popen(terminal_cmd, shell=(system == 'Windows'))
+                print(f"✓ 遊戲客戶端已在新終端窗口啟動")
             else:
-                # For GUI games, start in background
+                # Start in background for GUI games
                 process = subprocess.Popen(
                     cmd_parts,
                     cwd=game_dir,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE
                 )
-                print(f"\n✓ 遊戲已啟動 (PID: {process.pid})")
+                print(f"✓ 遊戲已啟動 (PID: {process.pid})")
             
-            if is_multiplayer:
-                print("\n提示: 遊戲客戶端已啟動")
-                print("      請在遊戲中連接到伺服器")
-            else:
-                print("\n提示: 遊戲窗口已開啟，請切換到遊戲窗口開始遊玩")
-            
+            print("\n提示: 遊戲客戶端已啟動並連接到遠程服務器")
             print("      遊戲結束後請關閉遊戲窗口")
             
         except Exception as e:
-            print(f"\n✗ 啟動遊戲失敗: {e}")
+            print(f"\n✗ 啟動遊戲客戶端失敗: {e}")
             import traceback
             traceback.print_exc()
-        
-        input("\n按 Enter 繼續...")
     
     def _monitor_game_server(self, process, room_id):
         """Monitor game server process and auto-end game when it exits"""
@@ -1486,7 +1420,7 @@ class LobbyClient:
         input("\n按 Enter 繼續...")
     
     def _auto_start_game_client(self):
-        """Auto-start game client for non-host players"""
+        """Auto-start game client for non-host players - Connect to remote game server"""
         try:
             import json
             import subprocess
@@ -1494,6 +1428,12 @@ class LobbyClient:
             
             game_id = self.current_room['game_id']
             game_name = self.current_room['game_name']
+            game_host = self.current_room.get('game_host', self.server_host)
+            game_port = self.current_room.get('game_port')
+            
+            if not game_port:
+                print(f"\n✗ 無法獲取遊戲端口")
+                return
             
             # Find game directory
             user_downloads_dir = os.path.join(self.downloads_dir, self.username)
@@ -1501,6 +1441,7 @@ class LobbyClient:
             
             if not os.path.exists(game_dir):
                 print(f"\n✗ 找不到遊戲目錄: {game_dir}")
+                print("請先下載遊戲")
                 return
             
             # Read game config
@@ -1515,17 +1456,15 @@ class LobbyClient:
             game_type = config.get('type', 'GUI')
             start_command = config.get('start_command', 'python game.py')
             
-            # Parse and execute start command
+            # Parse start command
             cmd_parts = start_command.split()
             if cmd_parts[0] == 'python':
                 cmd_parts[0] = 'python3'
             
-            # Add port parameter if available
-            if self.current_room.get('game_port'):
-                cmd_parts.extend(['--port', str(self.current_room['game_port'])])
-                print(f"連接端口: {self.current_room['game_port']}")
+            # Add connection parameters to remote game server
+            cmd_parts.extend(['--host', game_host, '--port', str(game_port)])
             
-            # Wait a bit for server to start
+            print(f"連接到遊戲服務器: {game_host}:{game_port}")
             print("等待伺服器就緒...")
             time.sleep(2)
             
