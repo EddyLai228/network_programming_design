@@ -1,0 +1,9 @@
+{
+  "name": "Snake Battle",
+  "description": "雙人貪吃蛇對戰 - 大地圖、吃果實長3倍、空白鍵噴火攻擊！支援跨機器網路對戰",
+  "type": "GUI_MULTIPLAYER",
+  "max_players": 2,
+  "version": "2.0.0",
+  "server_command": "python game.py server",
+  "start_command": "python game.py client --host localhost"
+}

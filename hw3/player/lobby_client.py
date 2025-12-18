@@ -1486,14 +1486,17 @@ class LobbyClient:
                 subprocess.Popen(terminal_cmd, shell=(system == 'Windows'))
                 print(f"✓ 遊戲客戶端已在新終端窗口啟動")
             else:
-                # For GUI games
-                process = subprocess.Popen(
-                    cmd_parts,
-                    cwd=game_dir,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
+                # For GUI games - save logs to file for debugging
+                log_file = os.path.join(game_dir, 'client.log')
+                with open(log_file, 'w') as log:
+                    process = subprocess.Popen(
+                        cmd_parts,
+                        cwd=game_dir,
+                        stdout=log,
+                        stderr=subprocess.STDOUT
+                    )
                 print(f"✓ 遊戲已啟動 (PID: {process.pid})")
+                print(f"   日誌文件: {log_file}")
             
             time.sleep(1)
             
